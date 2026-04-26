@@ -1,0 +1,33 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+multimodal-engagement-predictor/.venv/
+
+# Local environment files
+.env
+.env.*
+
+# Runtime/generated artifacts
+multimodal-engagement-predictor/artifacts/*.pkl
+multimodal-engagement-predictor/artifacts/*.npy
+multimodal-engagement-predictor/artifacts/*.json
+!multimodal-engagement-predictor/artifacts/.gitkeep
+
+# Large local media inputs
+*.mp4
+*.mov
+*.m4v
+*.webm
+*.avi
+*.mkv

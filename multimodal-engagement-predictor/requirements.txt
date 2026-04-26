@@ -1,0 +1,19 @@
+torch
+transformers
+pillow
+pandas
+scikit-learn
+streamlit
+joblib
+matplotlib
+numpy
+opencv-python
+requests
+yt-dlp
+imageio-ffmpeg
+
+# Optional fallbacks / visualization extras:
+# sentence-transformers
+# umap-learn
+# faster-whisper
+# openai-whisper
