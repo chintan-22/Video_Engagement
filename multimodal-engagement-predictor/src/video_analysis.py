@@ -741,14 +741,60 @@ def _add_retention_curve(frame_df: pd.DataFrame, duration: float) -> pd.DataFram
     return working
 
 
-def _group_loss_moments(frame_df: pd.DataFrame, sample_every: float) -> list[RetentionMoment]:
+def _opening_diagnostics(frame_df: pd.DataFrame, opening_seconds: float) -> dict[str, Any] | None:
+    """Summarize first-impression issues separately from later drop-off moments."""
+
+    if frame_df.empty:
+        return None
+
+    opening_df = frame_df[frame_df["timestamp_seconds"] <= opening_seconds].copy()
+    if opening_df.empty:
+        return None
+
+    peak = opening_df.sort_values("risk_score", ascending=False).iloc[0]
+    average_risk = float(opening_df["risk_score"].mean())
+    if average_risk < 45 and float(peak["risk_score"]) < 55:
+        return None
+
+    recommendations = []
+    for value in opening_df["recommendations"].tolist():
+        recommendations.extend(str(value).split(" | "))
+
+    unique_recommendations = []
+    for item in recommendations:
+        if item and item not in unique_recommendations:
+            unique_recommendations.append(item)
+
+    return {
+        "timestamp": f"00:00-{format_timestamp(opening_seconds)}",
+        "risk_score": average_risk,
+        "peak_risk_score": float(peak["risk_score"]),
+        "reasons": str(peak["reasons"]),
+        "recommendation": " ".join(unique_recommendations[:3]),
+        "note": "Opening diagnostics are first-impression issues, not a viewer drop-off timestamp.",
+    }
+
+
+def _group_loss_moments(
+    frame_df: pd.DataFrame,
+    sample_every: float,
+    min_loss_seconds: float,
+) -> list[RetentionMoment]:
     if frame_df.empty:
         return []
 
+    analysis_df = frame_df[frame_df["timestamp_seconds"] >= min_loss_seconds].copy()
+    if analysis_df.empty:
+        return []
+
     threshold = max(58.0, float(frame_df["risk_score"].quantile(0.75)))
-    candidate_df = frame_df[frame_df["risk_score"] >= threshold].copy()
+    candidate_df = analysis_df[analysis_df["risk_score"] >= threshold].copy()
     if candidate_df.empty:
-        candidate_df = frame_df.nlargest(3, "risk_score")
+        fallback_threshold = max(52.0, float(analysis_df["risk_score"].quantile(0.7)))
+        candidate_df = analysis_df[analysis_df["risk_score"] >= fallback_threshold].copy()
+
+    if candidate_df.empty:
+        return []
 
     groups: list[pd.DataFrame] = []
     current_rows: list[pd.Series] = []
@@ -899,7 +945,13 @@ def analyze_video_file(
         frame_df = _combine_modal_timelines(frame_df, audio_df, transcript_df)
 
     frame_df = _add_retention_curve(frame_df, duration)
-    moments = _group_loss_moments(frame_df, adjusted_interval)
+    opening_window_seconds = max(3.0, adjusted_interval)
+    opening_summary = _opening_diagnostics(frame_df, opening_window_seconds)
+    moments = _group_loss_moments(
+        frame_df,
+        adjusted_interval,
+        min_loss_seconds=opening_window_seconds,
+    )
 
     average_risk = float(frame_df["risk_score"].mean()) if not frame_df.empty else 0.0
     audio_available = "audio_risk_score" in frame_df.columns and frame_df["audio_risk_score"].notna().any()
@@ -917,7 +969,12 @@ def analyze_video_file(
         else None
     )
     completion = float(frame_df["predicted_retention"].iloc[-1]) if not frame_df.empty else 0.0
-    riskiest = frame_df.sort_values("risk_score", ascending=False).iloc[0].to_dict() if not frame_df.empty else {}
+    post_opening_df = frame_df[frame_df["timestamp_seconds"] >= opening_window_seconds]
+    riskiest = (
+        post_opening_df.sort_values("risk_score", ascending=False).iloc[0].to_dict()
+        if not post_opening_df.empty
+        else {}
+    )
     early_df = frame_df[frame_df["timestamp_seconds"] <= 8]
     hook_score = float(np.clip(100 - early_df["risk_score"].mean(), 0, 100)) if not early_df.empty else 0.0
 
@@ -934,13 +991,15 @@ def analyze_video_file(
         "transcript_average_risk": transcript_average_risk,
         "predicted_completion_rate": completion,
         "hook_score": hook_score,
-        "riskiest_timestamp": str(riskiest.get("timestamp", "00:00")),
+        "opening_window_seconds": opening_window_seconds,
+        "riskiest_timestamp": str(riskiest.get("timestamp", "N/A")),
         "riskiest_risk_score": float(riskiest.get("risk_score", 0.0)),
     }
 
     return {
         "summary": summary,
         "timeline": frame_df,
+        "opening_diagnostics": opening_summary,
         "loss_moments": [asdict(moment) for moment in moments],
         "transcript_segments": transcript_segments,
         "modality_notes": modality_notes,

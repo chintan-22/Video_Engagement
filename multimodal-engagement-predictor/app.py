@@ -147,9 +147,26 @@ def render_video_results(result: dict) -> None:
         )
         st.line_chart(modal_chart, x="seconds", y=list(modal_chart.columns[1:]), height=260)
 
+    opening_diagnostics = result.get("opening_diagnostics")
+    if opening_diagnostics:
+        st.subheader("Opening Hook Diagnostics")
+        st.caption(opening_diagnostics["note"])
+        opening_frame = pd.DataFrame(
+            [
+                {
+                    "opening window": opening_diagnostics["timestamp"],
+                    "average risk": round(opening_diagnostics["risk_score"], 1),
+                    "peak risk": round(opening_diagnostics["peak_risk_score"], 1),
+                    "first-impression issue": opening_diagnostics["reasons"],
+                    "producer fix": opening_diagnostics["recommendation"],
+                }
+            ]
+        )
+        st.dataframe(opening_frame, hide_index=True, use_container_width=True)
+
     st.subheader("Where Viewers May Lose Interest")
     if loss_moments.empty:
-        st.success("No major risk spikes were detected.")
+        st.success("No major post-opening drop-off risk spikes were detected.")
     else:
         display_moments = loss_moments[
             [
@@ -180,7 +197,10 @@ def render_video_results(result: dict) -> None:
                 f"{row['recommendation']}"
             )
     else:
-        st.write("The video has a steady visual rhythm. Review the detailed timeline for smaller refinements.")
+        st.write(
+            "No later drop-off moment crossed the threshold. Review the opening diagnostics "
+            "and detailed timeline for smaller refinements."
+        )
 
     with st.expander("Detailed Frame-Level Analytics"):
         requested_columns = [
